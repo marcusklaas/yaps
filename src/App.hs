@@ -3,23 +3,23 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-} 
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module App where
 
--- import           Control.Monad.Trans.Except
 import           Control.Monad.IO.Class
 import           Data.Aeson
--- import           GHC.Generics
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Servant
 import           System.IO
 import           Data.ByteString.Lazy
+import Data.Text.Lazy
+import           Data.Text.Lazy.Encoding
 
 -- * data types
 
--- TODO: the inner thing should be an InnerLibrary instead of a String
-data UncheckedLibrary = UncheckedLibrary { inner :: String
+data UncheckedLibrary = UncheckedLibrary { inner :: InnerLibrary
                                          , hmak :: String
                                          } deriving (Eq, Show)
 
@@ -31,9 +31,11 @@ data InnerLibrary = InnerLibrary { innerBlob :: String
 
 instance FromJSON UncheckedLibrary where
   parseJSON = withObject "pair" $ \o -> do
-    inner <- o .: "library"
     hmak <- o .: "hmac"
-    return UncheckedLibrary { .. }
+    innerString <- o .: "library"
+    case (decode $ encodeUtf8 innerString)
+      of Just inner -> return UncheckedLibrary { .. }
+         Nothing -> fail "Couldn't decode library"
 
 instance FromJSON InnerLibrary where
   parseJSON = withObject "innerlib" $ \o -> do
@@ -52,14 +54,19 @@ instance ToJSON InnerLibrary where
 
 instance ToJSON UncheckedLibrary where
   toJSON o = object [
-      "inner" .= inner o,
+      "inner" .= (decodeUtf8 . encode . inner) o,
       "hmac" .= hmak o ]
 
+instance FromHttpApiData UncheckedLibrary where
+  parseQueryParam p = case (decode . encodeUtf8 . Data.Text.Lazy.fromStrict) p
+    of Just lib -> Right lib
+       Nothing -> Left "Couldn't decode library"
 
 -- * api
 
 type ItemApi =
-  "passwords" :> Get '[JSON] UncheckedLibrary
+  "passwords" :> Get '[JSON] UncheckedLibrary :<|>
+  "passwords" :> QueryParam "pwhash" String :> QueryParam "newlib" UncheckedLibrary :> PostNoContent '[JSON] NoContent
 
 itemApi :: Proxy ItemApi
 itemApi = Proxy
@@ -80,16 +87,35 @@ mkApp = return $ serve itemApi server
 
 server :: Server ItemApi
 server =
-  getPasswords
+  getPasswords :<|>
+  updatePasswords
 
--- ffs :: IO (Maybe UncheckedLibrary)
--- ffs = decode <$> Data.ByteString.Lazy.readFile "test.json"
+testFile :: String
+testFile = "test.json"
 
--- run = System.IO.putStrLn =<< (show <$> ffs)
+oldLibversion :: IO (Maybe Integer)
+oldLibversion = 
+  (return . (fmap (libraryVersion . inner)) . decode) =<< Data.ByteString.Lazy.readFile testFile
+
+doubleHash :: IO ByteString
+doubleHash = Data.ByteString.Lazy.readFile "double-hash.txt"
+
+updatePasswords :: Maybe String -> Maybe UncheckedLibrary -> Handler NoContent
+updatePasswords (Just hash) (Just lib) = do
+  targetHash <- liftIO doubleHash
+  -- let doubleHash = SHA1 hash
+  let newVersion = (libraryVersion . inner) lib
+  oldVersion <- liftIO oldLibversion
+  case (oldVersion, newVersion) of
+    (Just x, y) -> if (x + 1 == y)
+      then return NoContent
+      else throwError $ err503 { errBody = "version mismatch" }
+    (_, _) -> throwError $ err503 { errBody = "decoding error yo!!" }
+updatePasswords _ _ = throwError $ err503 { errBody = "missing or incorrect params" }
 
 
 getPasswords :: Handler UncheckedLibrary
 getPasswords = do
-  innerLib <- liftIO $ decode <$> Data.ByteString.Lazy.readFile "test.json"
+  innerLib <- liftIO $ decode <$> Data.ByteString.Lazy.readFile testFile
   case innerLib of Just lib -> return lib
                    Nothing -> throwError $ err503 { errBody = "failed json decode" }
