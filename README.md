@@ -35,11 +35,13 @@ to reload the code (after making changes) and run the tests again.
 To run the app, do:
 
 ``` bash
-stack exec example-servant-minimal
+stack exec yaps
 ```
 
 Then you can query the server like this:
 
 ``` bash
-curl localhost:3000/item
+curl localhost:3000/passwords
 ```
+
+Please note that the tests currently do not pass.

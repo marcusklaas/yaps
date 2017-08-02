@@ -1,4 +1,4 @@
-name: example-servant-minimal
+name: yaps
 
 ghc-options: -Wall
 
@@ -9,7 +9,7 @@ tests:
       - test
     dependencies:
       - hspec
-      - example-servant-minimal
+      - yaps
       - servant-client
       - warp >= 3.2.4
       - http-client
@@ -20,10 +20,10 @@ library:
     - src
 
 executables:
-  example-servant-minimal:
+  yaps:
     main: exe/Main.hs
     dependencies:
-      - example-servant-minimal
+      - yaps
 
 dependencies:
   - base
@@ -33,3 +33,5 @@ dependencies:
   - aeson
   - wai
   - warp
+  - bytestring
+  - text
