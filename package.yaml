@@ -35,3 +35,5 @@ dependencies:
   - warp
   - bytestring
   - text
+  - cryptonite
+  - directory

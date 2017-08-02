@@ -12,10 +12,18 @@ import           Data.Aeson
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Servant
+import           System.Directory
 import           System.IO
+import           Data.ByteString
+import           Data.Text.Encoding
 import           Data.ByteString.Lazy
-import Data.Text.Lazy
+import           Data.Text
+import           Data.Text.Lazy
 import           Data.Text.Lazy.Encoding
+import           Crypto.Hash
+
+sha1 :: Data.ByteString.ByteString -> Digest SHA1
+sha1 = hash
 
 -- * data types
 
@@ -33,7 +41,7 @@ instance FromJSON UncheckedLibrary where
   parseJSON = withObject "pair" $ \o -> do
     hmak <- o .: "hmac"
     innerString <- o .: "library"
-    case (decode $ encodeUtf8 innerString)
+    case (decode $ Data.Text.Lazy.Encoding.encodeUtf8 innerString)
       of Just inner -> return UncheckedLibrary { .. }
          Nothing -> fail "Couldn't decode library"
 
@@ -54,11 +62,11 @@ instance ToJSON InnerLibrary where
 
 instance ToJSON UncheckedLibrary where
   toJSON o = object [
-      "inner" .= (decodeUtf8 . encode . inner) o,
+      "inner" .= (Data.Text.Lazy.Encoding.decodeUtf8 . encode . inner) o,
       "hmac" .= hmak o ]
 
 instance FromHttpApiData UncheckedLibrary where
-  parseQueryParam p = case (decode . encodeUtf8 . Data.Text.Lazy.fromStrict) p
+  parseQueryParam p = case (decode . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict) p
     of Just lib -> Right lib
        Nothing -> Left "Couldn't decode library"
 
@@ -66,7 +74,7 @@ instance FromHttpApiData UncheckedLibrary where
 
 type ItemApi =
   "passwords" :> Get '[JSON] UncheckedLibrary :<|>
-  "passwords" :> QueryParam "pwhash" String :> QueryParam "newlib" UncheckedLibrary :> PostNoContent '[JSON] NoContent
+  "passwords" :> QueryParam "pwhash" Data.Text.Text :> QueryParam "newlib" UncheckedLibrary :> PostNoContent '[JSON] NoContent
 
 itemApi :: Proxy ItemApi
 itemApi = Proxy
@@ -78,7 +86,7 @@ run = do
   let port = 3000
       settings =
         setPort port $
-        setBeforeMainLoop (hPutStrLn stderr ("listening on port " ++ show port)) $
+        setBeforeMainLoop (System.IO.hPutStrLn stderr ("listening on port " ++ show port)) $
         defaultSettings
   runSettings settings =<< mkApp
 
@@ -93,26 +101,33 @@ server =
 testFile :: String
 testFile = "test.json"
 
+backupFile :: Integer -> String
+backupFile version = "backup-" ++ (show version) ++ ".json"
+
 oldLibversion :: IO (Maybe Integer)
 oldLibversion = 
   (return . (fmap (libraryVersion . inner)) . decode) =<< Data.ByteString.Lazy.readFile testFile
 
-doubleHash :: IO ByteString
-doubleHash = Data.ByteString.Lazy.readFile "double-hash.txt"
+doubleHash :: IO Data.ByteString.ByteString
+doubleHash = Data.ByteString.readFile "double-hash.txt"
 
-updatePasswords :: Maybe String -> Maybe UncheckedLibrary -> Handler NoContent
-updatePasswords (Just hash) (Just lib) = do
+updatePasswords :: Maybe Data.Text.Text -> Maybe UncheckedLibrary -> Handler NoContent
+updatePasswords (Just submittedHash) (Just lib) = do
   targetHash <- liftIO doubleHash
-  -- let doubleHash = SHA1 hash
+  if digestFromByteString targetHash == Just (sha1 $ Data.Text.Encoding.encodeUtf8 submittedHash)
+    then return ()
+    else throwError $ err400 { errBody = "invalid password hash yo!" }
   let newVersion = (libraryVersion . inner) lib
   oldVersion <- liftIO oldLibversion
   case (oldVersion, newVersion) of
-    (Just x, y) -> if (x + 1 == y)
-      then return NoContent
+    (Just old, new) -> if (old + 1 == new)
+      then do
+        liftIO $ renameFile testFile (backupFile old)
+        liftIO $ Data.ByteString.Lazy.writeFile testFile (encode lib)
+        return NoContent
       else throwError $ err503 { errBody = "version mismatch" }
     (_, _) -> throwError $ err503 { errBody = "decoding error yo!!" }
 updatePasswords _ _ = throwError $ err503 { errBody = "missing or incorrect params" }
-
 
 getPasswords :: Handler UncheckedLibrary
 getPasswords = do
