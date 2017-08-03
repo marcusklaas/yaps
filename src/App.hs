@@ -17,7 +17,6 @@ import           System.IO
 import           Data.ByteString
 import           Data.Text.Encoding
 import           Data.ByteString.Lazy
-import           Data.ByteString.Lazy.Char8
 import           Data.Text
 import           Data.Text.Lazy
 import           Data.Text.Lazy.Encoding
@@ -63,11 +62,11 @@ instance ToJSON UncheckedLibrary where
       "hmac" .= hmak o ]
 
 data UpdateRequest = UpdateRequest { newLib :: UncheckedLibrary
-                                   , hash :: Data.Text.Text }
+                                   , passwordHash :: Data.Text.Text }
 
 instance FromForm UpdateRequest where
   fromForm inputs = do
-    hash <- lookupUnique "pwhash" inputs
+    passwordHash <- lookupUnique "pwhash" inputs
     libText <- lookupUnique "newlib" inputs
     newLib <- case ((decode . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict) libText)
       of Just lib -> Right lib
@@ -123,9 +122,6 @@ oldLibversion = do
   innerLib <- getInnerLib lib
   return $ libraryVersion innerLib
 
-doubleHash :: IO String
-doubleHash = System.IO.readFile "double-hash.txt"
-
 getInnerLib :: UncheckedLibrary -> Handler InnerLibrary
 getInnerLib = decodeOrFail . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict . inner
 
@@ -133,17 +129,25 @@ decodeOrFail :: (FromJSON a) => Data.ByteString.Lazy.ByteString -> Handler a
 decodeOrFail x = case (decode x) of Just y -> return y
                                     Nothing -> throwError $ err503 { errBody = "failed json decode" }
 
--- TODO: assert api version is as expected
-updatePasswords :: UpdateRequest -> Handler NoContent
-updatePasswords UpdateRequest { hash = submittedHash, newLib = lib } = do
-  innerLib <- getInnerLib lib
-  targetHash <- liftIO doubleHash
-  if targetHash == show $ sha1 $ Data.Text.Encoding.encodeUtf8 submittedHash
+assertVersion :: Integer -> InnerLibrary -> Handler ()
+assertVersion i lib = if libraryVersion lib == i
+  then return ()
+  else throwError $ err400 { errBody = "invalid API version" }
+
+assertHash :: Data.Text.Text -> Handler ()
+assertHash submittedHash = do
+  targetHash <- liftIO $ System.IO.readFile "double-hash.txt"
+  if targetHash == (show $ sha1 $ Data.Text.Encoding.encodeUtf8 submittedHash)
     then return ()
     else throwError $ err400 { errBody = "invalid password hash yo!" }
-  let newVersion = libraryVersion innerLib
+
+updatePasswords :: UpdateRequest -> Handler NoContent
+updatePasswords UpdateRequest { passwordHash = submittedHash, newLib = lib } = do
+  innerLib <- getInnerLib lib
+  assertVersion 3 innerLib
+  assertHash submittedHash
   oldVersion <- oldLibversion
-  if (oldVersion + 1 == newVersion)
+  if oldVersion + 1 == libraryVersion innerLib
     then do
       liftIO $ renameFile testFile (backupFile oldVersion)
       liftIO $ Data.ByteString.Lazy.writeFile testFile (encode lib)
