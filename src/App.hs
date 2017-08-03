@@ -85,12 +85,12 @@ instance FromHttpApiData UncheckedLibrary where
 
 -- * api
 
-type ItemApi =
+type PasswordApi =
   "passwords" :> Get '[JSON] UncheckedLibrary :<|>
   "passwords" :> ReqBody '[FormUrlEncoded] UpdateRequest :> PostNoContent '[JSON] NoContent
 
-itemApi :: Proxy ItemApi
-itemApi = Proxy
+passwordApi :: Proxy PasswordApi
+passwordApi = Proxy
 
 -- * app
 
@@ -104,9 +104,9 @@ run = do
   runSettings settings =<< mkApp
 
 mkApp :: IO Application
-mkApp = return $ serve itemApi server
+mkApp = return $ serve passwordApi server
 
-server :: Server ItemApi
+server :: Server PasswordApi
 server =
   getPasswords :<|>
   updatePasswords
