@@ -37,3 +37,4 @@ dependencies:
   - text
   - cryptonite
   - directory
+  - http-api-data

@@ -17,17 +17,16 @@ import           System.IO
 import           Data.ByteString
 import           Data.Text.Encoding
 import           Data.ByteString.Lazy
+import           Data.ByteString.Lazy.Char8
 import           Data.Text
 import           Data.Text.Lazy
 import           Data.Text.Lazy.Encoding
 import           Crypto.Hash
-
-sha1 :: Data.ByteString.ByteString -> Digest SHA1
-sha1 = hash
+import           Web.FormUrlEncoded
 
 -- * data types
 
-data UncheckedLibrary = UncheckedLibrary { inner :: InnerLibrary
+data UncheckedLibrary = UncheckedLibrary { inner :: Data.Text.Text
                                          , hmak :: String
                                          } deriving (Eq, Show)
 
@@ -40,10 +39,8 @@ data InnerLibrary = InnerLibrary { innerBlob :: String
 instance FromJSON UncheckedLibrary where
   parseJSON = withObject "pair" $ \o -> do
     hmak <- o .: "hmac"
-    innerString <- o .: "library"
-    case (decode $ Data.Text.Lazy.Encoding.encodeUtf8 innerString)
-      of Just inner -> return UncheckedLibrary { .. }
-         Nothing -> fail "Couldn't decode library"
+    inner <- o .: "library"
+    return UncheckedLibrary { .. }
 
 instance FromJSON InnerLibrary where
   parseJSON = withObject "innerlib" $ \o -> do
@@ -62,8 +59,21 @@ instance ToJSON InnerLibrary where
 
 instance ToJSON UncheckedLibrary where
   toJSON o = object [
-      "inner" .= (Data.Text.Lazy.Encoding.decodeUtf8 . encode . inner) o,
+      "library" .= inner o,
       "hmac" .= hmak o ]
+
+data UpdateRequest = UpdateRequest { newLib :: UncheckedLibrary
+                                   , hash :: Data.Text.Text }
+
+instance FromForm UpdateRequest where
+  fromForm inputs = do
+    hash <- lookupUnique "pwhash" inputs
+    libText <- lookupUnique "newlib" inputs
+    newLib <- case ((decode . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict) libText)
+      of Just lib -> Right lib
+         Nothing -> Left "Couldn't decode library"
+    return UpdateRequest{..}
+
 
 instance FromHttpApiData UncheckedLibrary where
   parseQueryParam p = case (decode . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict) p
@@ -74,7 +84,7 @@ instance FromHttpApiData UncheckedLibrary where
 
 type ItemApi =
   "passwords" :> Get '[JSON] UncheckedLibrary :<|>
-  "passwords" :> QueryParam "pwhash" Data.Text.Text :> QueryParam "newlib" UncheckedLibrary :> PostNoContent '[JSON] NoContent
+  "passwords" :> ReqBody '[FormUrlEncoded] UpdateRequest :> PostNoContent '[JSON] NoContent
 
 itemApi :: Proxy ItemApi
 itemApi = Proxy
@@ -83,7 +93,7 @@ itemApi = Proxy
 
 run :: IO ()
 run = do
-  let port = 3000
+  let port = 3001
       settings =
         setPort port $
         setBeforeMainLoop (System.IO.hPutStrLn stderr ("listening on port " ++ show port)) $
@@ -98,39 +108,50 @@ server =
   getPasswords :<|>
   updatePasswords
 
+sha1 :: Data.ByteString.ByteString -> Digest SHA1
+sha1 = Crypto.Hash.hash
+
 testFile :: String
 testFile = "test.json"
 
 backupFile :: Integer -> String
 backupFile version = "backup-" ++ (show version) ++ ".json"
 
-oldLibversion :: IO (Maybe Integer)
-oldLibversion = 
-  (return . (fmap (libraryVersion . inner)) . decode) =<< Data.ByteString.Lazy.readFile testFile
+oldLibversion :: Handler Integer
+oldLibversion = do
+  lib <- getPasswords
+  innerLib <- getInnerLib lib
+  return $ libraryVersion innerLib
 
-doubleHash :: IO Data.ByteString.ByteString
-doubleHash = Data.ByteString.readFile "double-hash.txt"
+doubleHash :: IO String
+doubleHash = System.IO.readFile "double-hash.txt"
 
-updatePasswords :: Maybe Data.Text.Text -> Maybe UncheckedLibrary -> Handler NoContent
-updatePasswords (Just submittedHash) (Just lib) = do
+getInnerLib :: UncheckedLibrary -> Handler InnerLibrary
+getInnerLib = decodeOrFail . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict . inner
+
+decodeOrFail :: (FromJSON a) => Data.ByteString.Lazy.ByteString -> Handler a
+decodeOrFail x = case (decode x) of Just y -> return y
+                                    Nothing -> throwError $ err503 { errBody = "failed json decode" }
+
+-- TODO: assert api version is as expected
+updatePasswords :: UpdateRequest -> Handler NoContent
+updatePasswords UpdateRequest { hash = submittedHash, newLib = lib } = do
+  innerLib <- getInnerLib lib
   targetHash <- liftIO doubleHash
-  if digestFromByteString targetHash == Just (sha1 $ Data.Text.Encoding.encodeUtf8 submittedHash)
+  if targetHash == show $ sha1 $ Data.Text.Encoding.encodeUtf8 submittedHash
     then return ()
     else throwError $ err400 { errBody = "invalid password hash yo!" }
-  let newVersion = (libraryVersion . inner) lib
-  oldVersion <- liftIO oldLibversion
-  case (oldVersion, newVersion) of
-    (Just old, new) -> if (old + 1 == new)
-      then do
-        liftIO $ renameFile testFile (backupFile old)
-        liftIO $ Data.ByteString.Lazy.writeFile testFile (encode lib)
-        return NoContent
-      else throwError $ err503 { errBody = "version mismatch" }
-    (_, _) -> throwError $ err503 { errBody = "decoding error yo!!" }
-updatePasswords _ _ = throwError $ err503 { errBody = "missing or incorrect params" }
+  let newVersion = libraryVersion innerLib
+  oldVersion <- oldLibversion
+  if (oldVersion + 1 == newVersion)
+    then do
+      liftIO $ renameFile testFile (backupFile oldVersion)
+      liftIO $ Data.ByteString.Lazy.writeFile testFile (encode lib)
+      return NoContent
+    else throwError $ err503 { errBody = "version mismatch" }
 
 getPasswords :: Handler UncheckedLibrary
 getPasswords = do
-  innerLib <- liftIO $ decode <$> Data.ByteString.Lazy.readFile testFile
-  case innerLib of Just lib -> return lib
-                   Nothing -> throwError $ err503 { errBody = "failed json decode" }
+  bs <- liftIO $ Data.ByteString.Lazy.readFile testFile
+  lib <- decodeOrFail bs
+  getInnerLib lib >> return lib
