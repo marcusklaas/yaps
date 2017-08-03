@@ -120,6 +120,9 @@ testFile = "test.json"
 backupFile :: Integer -> String
 backupFile version = "backup-" ++ (show version) ++ ".json"
 
+doubleHashFile :: String
+doubleHashFile = "double-hash.txt"
+
 oldLibversion :: Handler Integer
 oldLibversion = do
   lib <- getPasswords
@@ -128,19 +131,23 @@ oldLibversion = do
 getInnerLib :: UncheckedLibrary -> Handler InnerLibrary
 getInnerLib = decoderHandle . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict . inner
 
+-- TODO: there are some nice helper functions that turn Maybe's and Eithers into ErrorMonads
 decoderHandle :: (FromJSON a) => Data.ByteString.Lazy.ByteString -> Handler a
 decoderHandle x = case (decode x) of Just y -> return y
                                      Nothing -> throwError $ err503 { errBody = "failed json decode" }
 
 assertVersion :: Integer -> InnerLibrary -> Handler ()
-assertVersion i lib = if libraryVersion lib == i
+assertVersion i lib = if apiVersion lib == i
   then return ()
   else throwError $ err400 { errBody = "invalid API version" }
 
+hashText :: Data.Text.Text -> String
+hashText = show . sha1 . Data.Text.Encoding.encodeUtf8
+
 assertHash :: Data.Text.Text -> Handler ()
 assertHash submittedHash = do
-  targetHash <- liftIO $ System.IO.readFile "double-hash.txt"
-  if targetHash == (show . sha1 . Data.Text.Encoding.encodeUtf8) submittedHash
+  targetHash <- liftIO $ System.IO.readFile doubleHashFile
+  if targetHash == hashText submittedHash
     then return ()
     else throwError $ err400 { errBody = "invalid password hash yo!" }
 
@@ -154,8 +161,8 @@ writeLib lib oldVersion = do
     else throwError $ err503 { errBody = "version mismatch" }
 
 updateMasterPass :: Maybe Data.Text.Text -> Handler ()
--- TODO: implement!
-updateMasterPass _ = return ()
+updateMasterPass Nothing = return ()
+updateMasterPass (Just singleHash) = liftIO $ System.IO.writeFile doubleHashFile $ hashText singleHash
 
 updatePasswords :: UpdateRequest -> Handler NoContent
 updatePasswords UpdateRequest { passwordHash = submittedHash, newLib = lib, newHash = maybeNewHash } = do
