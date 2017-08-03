@@ -22,6 +22,7 @@ import           Data.Text.Lazy
 import           Data.Text.Lazy.Encoding
 import           Crypto.Hash
 import           Web.FormUrlEncoded
+import           Data.Either.Combinators
 
 -- * data types
 
@@ -62,22 +63,25 @@ instance ToJSON UncheckedLibrary where
       "hmac" .= hmak o ]
 
 data UpdateRequest = UpdateRequest { newLib :: UncheckedLibrary
-                                   , passwordHash :: Data.Text.Text }
+                                   , passwordHash :: Data.Text.Text
+                                   , newHash :: Maybe Data.Text.Text }
+
+parseLibFromText :: Data.Text.Text -> Either Data.Text.Text UncheckedLibrary
+parseLibFromText libText =
+  case (decode . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict) libText
+    of Just lib -> Right lib
+       Nothing -> Left "Couldn't decode library"
 
 instance FromForm UpdateRequest where
   fromForm inputs = do
     passwordHash <- lookupUnique "pwhash" inputs
     libText <- lookupUnique "newlib" inputs
-    newLib <- case ((decode . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict) libText)
-      of Just lib -> Right lib
-         Nothing -> Left "Couldn't decode library"
+    newLib <- parseLibFromText libText
+    let newHash = rightToMaybe $ lookupUnique "newhash" inputs
     return UpdateRequest{..}
 
-
 instance FromHttpApiData UncheckedLibrary where
-  parseQueryParam p = case (decode . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict) p
-    of Just lib -> Right lib
-       Nothing -> Left "Couldn't decode library"
+  parseQueryParam = parseLibFromText
 
 -- * api
 
@@ -119,15 +123,14 @@ backupFile version = "backup-" ++ (show version) ++ ".json"
 oldLibversion :: Handler Integer
 oldLibversion = do
   lib <- getPasswords
-  innerLib <- getInnerLib lib
-  return $ libraryVersion innerLib
+  libraryVersion <$> getInnerLib lib
 
 getInnerLib :: UncheckedLibrary -> Handler InnerLibrary
-getInnerLib = decodeOrFail . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict . inner
+getInnerLib = decoderHandle . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict . inner
 
-decodeOrFail :: (FromJSON a) => Data.ByteString.Lazy.ByteString -> Handler a
-decodeOrFail x = case (decode x) of Just y -> return y
-                                    Nothing -> throwError $ err503 { errBody = "failed json decode" }
+decoderHandle :: (FromJSON a) => Data.ByteString.Lazy.ByteString -> Handler a
+decoderHandle x = case (decode x) of Just y -> return y
+                                     Nothing -> throwError $ err503 { errBody = "failed json decode" }
 
 assertVersion :: Integer -> InnerLibrary -> Handler ()
 assertVersion i lib = if libraryVersion lib == i
@@ -137,25 +140,34 @@ assertVersion i lib = if libraryVersion lib == i
 assertHash :: Data.Text.Text -> Handler ()
 assertHash submittedHash = do
   targetHash <- liftIO $ System.IO.readFile "double-hash.txt"
-  if targetHash == (show $ sha1 $ Data.Text.Encoding.encodeUtf8 submittedHash)
+  if targetHash == (show . sha1 . Data.Text.Encoding.encodeUtf8) submittedHash
     then return ()
     else throwError $ err400 { errBody = "invalid password hash yo!" }
 
-updatePasswords :: UpdateRequest -> Handler NoContent
-updatePasswords UpdateRequest { passwordHash = submittedHash, newLib = lib } = do
+writeLib :: UncheckedLibrary -> Integer -> Handler ()
+writeLib lib oldVersion = do
   innerLib <- getInnerLib lib
-  assertVersion 3 innerLib
-  assertHash submittedHash
-  oldVersion <- oldLibversion
   if oldVersion + 1 == libraryVersion innerLib
     then do
       liftIO $ renameFile testFile (backupFile oldVersion)
       liftIO $ Data.ByteString.Lazy.writeFile testFile (encode lib)
-      return NoContent
     else throwError $ err503 { errBody = "version mismatch" }
+
+updateMasterPass :: Maybe Data.Text.Text -> Handler ()
+-- TODO: implement!
+updateMasterPass _ = return ()
+
+updatePasswords :: UpdateRequest -> Handler NoContent
+updatePasswords UpdateRequest { passwordHash = submittedHash, newLib = lib, newHash = maybeNewHash } = do
+  innerLib <- getInnerLib lib
+  assertVersion 3 innerLib
+  assertHash submittedHash
+  writeLib lib =<< oldLibversion
+  updateMasterPass maybeNewHash
+  return NoContent
 
 getPasswords :: Handler UncheckedLibrary
 getPasswords = do
   bs <- liftIO $ Data.ByteString.Lazy.readFile testFile
-  lib <- decodeOrFail bs
+  lib <- decoderHandle bs
   getInnerLib lib >> return lib

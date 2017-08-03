@@ -38,3 +38,4 @@ dependencies:
   - cryptonite
   - directory
   - http-api-data
+  - either
