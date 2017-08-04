@@ -11,7 +11,7 @@ import           Servant
 import           Servant.Client
 import           Test.Hspec
 
-import           App hiding (getPasswords)
+import           App hiding (getPasswords, updatePasswords)
 
 getPasswords :: ClientM UncheckedLibrary
 updatePasswords :: UpdateRequest -> ClientM NoContent
@@ -30,8 +30,9 @@ spec = do
       -- it "allows to show items by id" $ \ env -> do
       --   try env (getItem 0) `shouldReturn` Item 0 "example item"
 
-      -- it "throws a 404 for missing items" $ \ env -> do
-      --   try env (getItem 42) `shouldThrow` (\ e -> responseStatus e == notFound404)
+      it "throws a 40x for invalid hash" $ \ env -> do
+        let request = UpdateRequest { passwordHash = "wrong-hash!", newLib = libOnDisk, newHash = Nothing }
+        try env (updatePasswords request) `shouldThrow` (\ e -> responseStatus e == forbidden403)
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
 withClient x innerSpec =

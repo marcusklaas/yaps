@@ -156,7 +156,7 @@ assertHash dir submittedHash = do
   targetHash <- liftIO $ System.IO.readFile $ dir </> doubleHashFile
   if targetHash == hashText submittedHash
     then return ()
-    else throwError $ err400 { errBody = "invalid password hash yo!" }
+    else throwError $ err403 { errBody = "invalid password hash yo!" }
 
 writeLib :: String -> UncheckedLibrary -> Integer -> Handler ()
 writeLib dir lib oldVersion = do
@@ -165,7 +165,7 @@ writeLib dir lib oldVersion = do
     then do
       liftIO $ renameFile (dir </> testFile) (backupFile oldVersion)
       liftIO $ Data.ByteString.Lazy.writeFile (dir </> testFile) (encode lib)
-    else throwError $ err503 { errBody = "version mismatch" }
+    else throwError $ err400 { errBody = "version mismatch" }
 
 updateMasterPass :: String -> Maybe Data.Text.Text -> Handler ()
 updateMasterPass _ Nothing = return ()
