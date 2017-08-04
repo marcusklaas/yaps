@@ -24,6 +24,7 @@ executables:
     main: exe/Main.hs
     dependencies:
       - yaps
+      - safe
 
 dependencies:
   - base
@@ -39,3 +40,4 @@ dependencies:
   - directory
   - http-api-data
   - either
+  - filepath

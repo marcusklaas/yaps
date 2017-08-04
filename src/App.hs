@@ -24,6 +24,7 @@ import           Data.Text.Lazy.Encoding
 import           Crypto.Hash
 import           Web.FormUrlEncoded
 import           Data.Either.Combinators
+import           System.FilePath.Posix
 
 -- * data types
 
@@ -101,22 +102,21 @@ passwordApi = Proxy
 
 -- * app
 
-run :: IO ()
-run = do
-  let port = 3001
-      settings =
+run :: String -> Int -> IO ()
+run dir port = do
+  let settings =
         setPort port $
         setBeforeMainLoop (System.IO.hPutStrLn stderr ("listening on port " ++ show port)) $
         defaultSettings
-  runSettings settings =<< mkApp
+  runSettings settings =<< mkApp dir
 
-mkApp :: IO Application
-mkApp = return $ serve passwordApi server
+mkApp :: String -> IO Application
+mkApp = return . (serve passwordApi) . server 
 
-server :: Server PasswordApi
-server =
-  getPasswords :<|>
-  updatePasswords
+server :: String -> Server PasswordApi
+server dir =
+  getPasswords dir :<|>
+  updatePasswords dir
 
 sha1 :: Data.ByteString.ByteString -> Digest SHA1
 sha1 = Crypto.Hash.hash
@@ -130,9 +130,9 @@ backupFile version = "backup-" ++ (show version) ++ ".json"
 doubleHashFile :: String
 doubleHashFile = "double-hash.txt"
 
-oldLibversion :: Handler Integer
-oldLibversion = do
-  lib <- getPasswords
+oldLibversion :: String -> Handler Integer
+oldLibversion dir = do
+  lib <- getPasswords dir
   libraryVersion <$> getInnerLib lib
 
 getInnerLib :: UncheckedLibrary -> Handler InnerLibrary
@@ -151,37 +151,37 @@ assertVersion i lib = if apiVersion lib == i
 hashText :: Data.Text.Text -> String
 hashText = show . sha1 . Data.Text.Encoding.encodeUtf8
 
-assertHash :: Data.Text.Text -> Handler ()
-assertHash submittedHash = do
-  targetHash <- liftIO $ System.IO.readFile doubleHashFile
+assertHash :: String -> Data.Text.Text -> Handler ()
+assertHash dir submittedHash = do
+  targetHash <- liftIO $ System.IO.readFile $ dir </> doubleHashFile
   if targetHash == hashText submittedHash
     then return ()
     else throwError $ err400 { errBody = "invalid password hash yo!" }
 
-writeLib :: UncheckedLibrary -> Integer -> Handler ()
-writeLib lib oldVersion = do
+writeLib :: String -> UncheckedLibrary -> Integer -> Handler ()
+writeLib dir lib oldVersion = do
   innerLib <- getInnerLib lib
   if oldVersion + 1 == libraryVersion innerLib
     then do
-      liftIO $ renameFile testFile (backupFile oldVersion)
-      liftIO $ Data.ByteString.Lazy.writeFile testFile (encode lib)
+      liftIO $ renameFile (dir </> testFile) (backupFile oldVersion)
+      liftIO $ Data.ByteString.Lazy.writeFile (dir </> testFile) (encode lib)
     else throwError $ err503 { errBody = "version mismatch" }
 
-updateMasterPass :: Maybe Data.Text.Text -> Handler ()
-updateMasterPass Nothing = return ()
-updateMasterPass (Just singleHash) = liftIO $ System.IO.writeFile doubleHashFile $ hashText singleHash
+updateMasterPass :: String -> Maybe Data.Text.Text -> Handler ()
+updateMasterPass _ Nothing = return ()
+updateMasterPass dir (Just singleHash) = liftIO $ System.IO.writeFile (dir </> doubleHashFile) $ hashText singleHash
 
-updatePasswords :: UpdateRequest -> Handler NoContent
-updatePasswords UpdateRequest { passwordHash = submittedHash, newLib = lib, newHash = maybeNewHash } = do
+updatePasswords :: String -> UpdateRequest -> Handler NoContent
+updatePasswords dir UpdateRequest { passwordHash = submittedHash, newLib = lib, newHash = maybeNewHash } = do
   innerLib <- getInnerLib lib
   assertVersion 3 innerLib
-  assertHash submittedHash
-  writeLib lib =<< oldLibversion
-  updateMasterPass maybeNewHash
+  assertHash dir submittedHash
+  writeLib dir lib =<< oldLibversion dir
+  updateMasterPass dir maybeNewHash
   return NoContent
 
-getPasswords :: Handler UncheckedLibrary
-getPasswords = do
-  bs <- liftIO $ Data.ByteString.Lazy.readFile testFile
+getPasswords :: String -> Handler UncheckedLibrary
+getPasswords dir = do
+  bs <- liftIO $ Data.ByteString.Lazy.readFile $ dir </> testFile
   lib <- decoderHandle bs
   getInnerLib lib >> return lib

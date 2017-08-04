@@ -20,7 +20,7 @@ getPasswords :<|> updatePasswords = client passwordApi
 spec :: Spec
 spec = do
   describe "/item" $ do
-    withClient mkApp $ do
+    withClient (mkApp ".") $ do
       it "returns passwords from disk" $ \ env -> do
         try env getPasswords `shouldReturn` UncheckedLibrary { hmak = "yo", inner = "lo" }
 
@@ -43,5 +43,3 @@ type Host = (Manager, BaseUrl)
 try :: ClientEnv -> ClientM a -> IO a
 try clientEnv action = either throwIO return =<<
   runClientM action clientEnv
-
-
