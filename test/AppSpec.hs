@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-} 
 
 module AppSpec where
 
@@ -10,24 +11,24 @@ import           Servant
 import           Servant.Client
 import           Test.Hspec
 
-import           App hiding (getItems)
+import           App hiding (getPasswords)
 
-getItems :: ClientM [Item]
-getItem :: Integer -> ClientM Item
-getItems :<|> getItem = client itemApi
+getPasswords :: ClientM UncheckedLibrary
+updatePasswords :: UpdateRequest -> ClientM NoContent
+getPasswords :<|> updatePasswords = client passwordApi
 
 spec :: Spec
 spec = do
   describe "/item" $ do
     withClient mkApp $ do
-      it "lists an example item" $ \ env -> do
-        try env getItems `shouldReturn` [Item 0 "example item"]
+      it "returns passwords from disk" $ \ env -> do
+        try env getPasswords `shouldReturn` UncheckedLibrary { hmak = "yo", inner = "lo" }
 
-      it "allows to show items by id" $ \ env -> do
-        try env (getItem 0) `shouldReturn` Item 0 "example item"
+      -- it "allows to show items by id" $ \ env -> do
+      --   try env (getItem 0) `shouldReturn` Item 0 "example item"
 
-      it "throws a 404 for missing items" $ \ env -> do
-        try env (getItem 42) `shouldThrow` (\ e -> responseStatus e == notFound404)
+      -- it "throws a 404 for missing items" $ \ env -> do
+      --   try env (getItem 42) `shouldThrow` (\ e -> responseStatus e == notFound404)
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
 withClient x innerSpec =
@@ -42,3 +43,5 @@ type Host = (Manager, BaseUrl)
 try :: ClientEnv -> ClientM a -> IO a
 try clientEnv action = either throwIO return =<<
   runClientM action clientEnv
+
+

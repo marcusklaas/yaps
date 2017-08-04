@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-} 
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedLists #-}
 
 module App where
 
@@ -80,8 +81,14 @@ instance FromForm UpdateRequest where
     let newHash = rightToMaybe $ lookupUnique "newhash" inputs
     return UpdateRequest{..}
 
-instance FromHttpApiData UncheckedLibrary where
-  parseQueryParam = parseLibFromText
+instance ToForm UpdateRequest where
+  toForm req = [
+    ("pwhash", toQueryParam (passwordHash req)),
+    ("newlib", toQueryParam (newLib req)),
+    ("newhash", toQueryParam (newHash req)) ]
+
+instance ToHttpApiData UncheckedLibrary where
+  toQueryParam = Data.Text.Encoding.decodeUtf8 . Data.ByteString.Lazy.toStrict . encode
 
 -- * api
 
