@@ -97,8 +97,8 @@ instance ToHttpApiData UncheckedLibrary where
 -- * api
 
 type PasswordApi =
-  "passwords" :> Get '[JSON] UncheckedLibrary :<|>
-  "passwords" :> ReqBody '[FormUrlEncoded] UpdateRequest :> PostNoContent '[JSON] NoContent
+  Get '[JSON] UncheckedLibrary :<|>
+  ReqBody '[FormUrlEncoded] UpdateRequest :> PostNoContent '[JSON] NoContent
 
 passwordApi :: Proxy PasswordApi
 passwordApi = Proxy
