@@ -15,6 +15,7 @@ tests:
       - http-client
       - http-types
       - text
+      - directory
 
 library:
   source-dirs:

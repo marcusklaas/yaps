@@ -8,6 +8,7 @@
 
 module App where
 
+import           Data.Monoid
 import           Control.Monad.IO.Class
 import           Data.Aeson
 import           Network.Wai
@@ -83,10 +84,12 @@ instance FromForm UpdateRequest where
     return UpdateRequest{..}
 
 instance ToForm UpdateRequest where
-  toForm req = [
-    ("pwhash", toQueryParam (passwordHash req)),
-    ("newlib", toQueryParam (newLib req)),
-    ("newhash", toQueryParam (newHash req)) ]
+  toForm req = case (newHash req) of
+      Just x -> [ ("newhash", toQueryParam x) ] <> form
+      Nothing -> [] <> form
+
+    where form = [ ("pwhash", toQueryParam (passwordHash req)),
+                   ("newlib", toQueryParam (newLib req)) ]
 
 instance ToHttpApiData UncheckedLibrary where
   toQueryParam = Data.Text.Encoding.decodeUtf8 . Data.ByteString.Lazy.toStrict . encode
@@ -163,7 +166,7 @@ writeLib dir lib oldVersion = do
   innerLib <- getInnerLib lib
   if oldVersion + 1 == libraryVersion innerLib
     then do
-      liftIO $ renameFile (dir </> testFile) (backupFile oldVersion)
+      liftIO $ renameFile (dir </> testFile) (dir </> backupFile oldVersion)
       liftIO $ Data.ByteString.Lazy.writeFile (dir </> testFile) (encode lib)
     else throwError $ err400 { errBody = "version mismatch" }
 
