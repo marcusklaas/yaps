@@ -125,13 +125,13 @@ sha1 :: Data.ByteString.ByteString -> Digest SHA1
 sha1 = Crypto.Hash.hash
 
 testFile :: String
-testFile = "test.json"
+testFile = "passwords.txt"
 
 backupFile :: Integer -> String
 backupFile version = "backup-" ++ (show version) ++ ".json"
 
 doubleHashFile :: String
-doubleHashFile = "double-hash.txt"
+doubleHashFile = "passhash.txt"
 
 oldLibversion :: String -> Handler Integer
 oldLibversion dir = do
