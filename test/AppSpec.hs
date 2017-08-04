@@ -17,12 +17,15 @@ getPasswords :: ClientM UncheckedLibrary
 updatePasswords :: UpdateRequest -> ClientM NoContent
 getPasswords :<|> updatePasswords = client passwordApi
 
+libOnDisk :: UncheckedLibrary
+libOnDisk = UncheckedLibrary { hmak = "hmak!", inner = "{\"blob\":\"/blob\",\"library_version\":1,\"api_version\":3,\"modified\":1337}" }
+
 spec :: Spec
 spec = do
-  describe "/item" $ do
-    withClient (mkApp ".") $ do
+  describe "/passwords" $ do
+    withClient (mkApp "test") $ do
       it "returns passwords from disk" $ \ env -> do
-        try env getPasswords `shouldReturn` UncheckedLibrary { hmak = "yo", inner = "lo" }
+        try env getPasswords `shouldReturn` libOnDisk
 
       -- it "allows to show items by id" $ \ env -> do
       --   try env (getItem 0) `shouldReturn` Item 0 "example item"
