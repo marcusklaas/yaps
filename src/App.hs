@@ -141,10 +141,8 @@ oldLibversion dir = do
 getInnerLib :: UncheckedLibrary -> Handler InnerLibrary
 getInnerLib = decoderHandle . Data.Text.Lazy.Encoding.encodeUtf8 . Data.Text.Lazy.fromStrict . inner
 
--- TODO: there are some nice helper functions that turn Maybe's and Eithers into ErrorMonads
 decoderHandle :: (FromJSON a) => Data.ByteString.Lazy.ByteString -> Handler a
-decoderHandle x = case (decode x) of Just y -> return y
-                                     Nothing -> throwError $ err503 { errBody = "failed json decode" }
+decoderHandle = (maybe (throwError err503 { errBody = "failed json decode" }) return) . decode
 
 assertVersion :: Integer -> InnerLibrary -> Handler ()
 assertVersion i lib = if apiVersion lib == i
