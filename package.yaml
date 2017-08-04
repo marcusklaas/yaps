@@ -36,6 +36,7 @@ dependencies:
   - aeson
   - wai
   - warp
+  - warp-tls
   - bytestring
   - text
   - cryptonite

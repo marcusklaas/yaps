@@ -11,8 +11,8 @@ module App where
 import           Data.Monoid
 import           Control.Monad.IO.Class
 import           Data.Aeson
-import           Network.Wai
 import           Network.Wai.Handler.Warp
+import           Network.Wai.Handler.WarpTLS
 import           Servant
 import           System.Directory
 import           System.IO
@@ -105,13 +105,13 @@ passwordApi = Proxy
 
 -- * app
 
-run :: String -> Int -> IO ()
-run dir port = do
+run :: TLSSettings -> String -> Int -> IO ()
+run tlsInfo dir port = do
   let settings =
         setPort port $
         setBeforeMainLoop (System.IO.hPutStrLn stderr ("listening on port " ++ show port)) $
         defaultSettings
-  runSettings settings =<< mkApp dir
+  runTLS tlsInfo settings =<< mkApp dir
 
 mkApp :: String -> IO Application
 mkApp = return . (serve passwordApi) . server 
