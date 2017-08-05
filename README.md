@@ -1,47 +1,35 @@
-This is a very minimal example of a project that uses
+YAPS (yet another password server)
+==================================
 
-- `servant` to specify a REST API,
-- `servant-server` to implement a server,
-- `hspec` and `servant-client` for the test-suite.
+This is a drop-in replacement for [yapm-server](https://github.com/marcusklaas/yapm-server).
 
-To set up the project and run the test-suite, do:
+[![CircleCI](https://circleci.com/gh/marcusklaas/yaps.svg?style=svg)](https://circleci.com/gh/marcusklaas/yaps)
 
-``` bash
-stack setup
-stack test --fast
+A client for this API can be found at [elm-yapm-client](https://github.com/jordymoos/elm-yapm-client).
+
+Getting started
+---------------
+
+Install stack:
 ```
-
-To execute the test-suite faster while developing, do:
-``` bash
-chmod go-w .ghci .
-stack exec ghci test/Spec.hs
+curl -sSL https://get.haskellstack.org/ | sh
 ```
-
-and then at the `ghci` prompt do:
-
-``` haskell
-:main
+Clone the repo:
 ```
-
-to run the tests and
-
-``` haskell
-:r
-:main
+git clone https://github.com/marcusklaas/yaps.git
 ```
-
-to reload the code (after making changes) and run the tests again.
-
-To run the app, do:
-
-``` bash
-stack exec yaps
+Enter the directory:
 ```
-
-Then you can query the server like this:
-
-``` bash
-curl localhost:3000/passwords
+cd yaps
 ```
+Build and install:
+```
+stack install
+```
+Copy the binary to some place you can access it, such as `/usr/lib/bin`. It should be at `~/.local/bin/yaps`.
 
-Please note that the tests currently do not pass.
+Run the password server:
+```
+yaps /path/to/cert/file /path/to/key/file /path/to/encrypted/stuff port
+```
+The encrypted directory should be writable by yaps and should contain at least a passwords.txt and passhash.txt. Examples for these files can be found in the root of this repo. Use with password `changeme`.
