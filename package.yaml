@@ -44,3 +44,4 @@ dependencies:
   - http-api-data
   - either
   - filepath
+  - wai-cors

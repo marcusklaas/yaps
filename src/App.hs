@@ -11,6 +11,7 @@ module App where
 import           Data.Monoid
 import           Control.Monad.IO.Class
 import           Data.Aeson
+import           Network.Wai.Middleware.Cors
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Handler.WarpTLS
 import           Servant
@@ -114,7 +115,7 @@ run tlsInfo dir port = do
   runTLS tlsInfo settings =<< mkApp dir
 
 mkApp :: String -> IO Application
-mkApp = return . (serve passwordApi) . server 
+mkApp = return . simpleCors . (serve passwordApi) . server 
 
 server :: String -> Server PasswordApi
 server dir =
